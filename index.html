@@ -808,7 +808,7 @@ td.editable-cell select option { background:#2a1000; color:var(--cream); }
 
     <!-- Edit banner -->
     <div id="edit-banner">
-      ✏️  Edit Mode Active — Changes are saved to CSV automatically. Click <strong>Save</strong> on each row after editing.
+      ✏️  Edit Mode Active — Changes are saved to the cloud (visible on all devices). Click <strong>💾 Save</strong> on each row after editing.
     </div>
 
     <!-- Table -->
@@ -875,41 +875,86 @@ td.editable-cell select option { background:#2a1000; color:var(--cream); }
   </div>
 </div>
 
-<script>
+<script type="module">
+// ══════════════════════════════════════
+// FIREBASE SETUP
+// ══════════════════════════════════════
+// STEP 1: Go to https://console.firebase.google.com
+// STEP 2: Create a project → Add Web App → copy firebaseConfig below
+// STEP 3: Firestore Database → Create database (Test mode is fine)
+// STEP 4: Replace the placeholder values below with YOUR project's values
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+import {
+  getFirestore, collection, onSnapshot,
+  addDoc, updateDoc, deleteDoc, doc
+} from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+// ─── Firebase config ───────────────────────────────────────
+ const firebaseConfig = {
+    apiKey: "AIzaSyAwsYjQ_VV07tAmBA44mtO9AFkmaLeGko0",
+    authDomain: "harv-972.firebaseapp.com",
+    projectId: "harv-972",
+    storageBucket: "harv-972.firebasestorage.app",
+    messagingSenderId: "176665874192",
+    appId: "1:176665874192:web:78bf4cceba2d89bdd81f95"
+  };
+// ────────────────────────────────────────────────────────────────────────────
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+const COL = 'donations';
+
 // ══════════════════════════════════════
 // DATA STORE
 // ══════════════════════════════════════
 const CORRECT_PIN = '2610';
-let editMode = false;
-let pinBuffer = '';
+let editMode       = false;
+let pinBuffer      = '';
+let donations      = [];
+let firestoreReady = false;
 
-let donations = [
-  { id:1, name:'Sri Ramesh Iyer',        amount:5000,  mode:'Cash',   date:'2025-03-15', note:'Auspicious contribution' },
-  { id:2, name:'Smt. Kavitha Subramani', amount:2500,  mode:'UPI',    date:'2025-03-18', note:'Jai Sita Ram' },
-  { id:3, name:'Dept. of Mathematics',   amount:10000, mode:'Bank',   date:'2025-03-20', note:'Department offering' },
-  { id:4, name:'Alumni Association',     amount:15000, mode:'Cheque', date:'2025-03-22', note:'Annual seva contribution' },
-  { id:5, name:'Sri Venkatesh Sharma',   amount:1001,  mode:'Cash',   date:'2025-03-25', note:'Personal blessing' },
-  { id:6, name:'Smt. Padmavathi R.',     amount:501,   mode:'UPI',    date:'2025-03-28', note:'' },
-];
+const SEED = [
+]
+
+// ══════════════════════════════════════
+// FIRESTORE REAL-TIME LISTENER
+// ══════════════════════════════════════
+function startListener() {
+  onSnapshot(collection(db, COL), async (snap) => {
+    if (snap.empty && !firestoreReady) {
+      for (const row of SEED) await addDoc(collection(db, COL), row);
+      firestoreReady = true;
+      return;
+    }
+    firestoreReady = true;
+    donations = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    donations.sort((a, b) => (a.date || '') < (b.date || '') ? -1 : 1);
+    renderTable();
+  }, (err) => {
+    console.error('Firestore error:', err);
+    toast('⚠️ Database error — check console');
+  });
+}
 
 // ══════════════════════════════════════
 // NAV
 // ══════════════════════════════════════
-function showPage(id) {
+window.showPage = function(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   document.getElementById('tab-' + id).classList.add('active');
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  if (id === 'dona') renderTable();
-}
+};
 
 // ══════════════════════════════════════
 // RENDER TABLE
 // ══════════════════════════════════════
 function renderTable() {
-  const tbody = document.getElementById('dona-body');
+  const tbody  = document.getElementById('dona-body');
   const actCol = document.getElementById('actions-col');
+  if (!actCol) return;
   actCol.style.display = editMode ? '' : 'none';
 
   tbody.innerHTML = '';
@@ -917,23 +962,23 @@ function renderTable() {
     const tr = document.createElement('tr');
     if (editMode) {
       tr.innerHTML = `
-        <td>${idx+1}</td>
-        <td class="editable-cell"><input value="${esc(d.name)}" onchange="donations[${idx}].name=this.value"/></td>
-        <td class="editable-cell"><input type="number" value="${d.amount}" onchange="donations[${idx}].amount=parseFloat(this.value)||0"/></td>
+        <td>${idx + 1}</td>
+        <td class="editable-cell"><input value="${esc(d.name)}" onchange="window._don[${idx}].name=this.value"/></td>
+        <td class="editable-cell"><input type="number" value="${d.amount}" onchange="window._don[${idx}].amount=parseFloat(this.value)||0"/></td>
         <td class="editable-cell">
-          <select onchange="donations[${idx}].mode=this.value">
-            ${['Cash','UPI','Bank','Cheque','Other'].map(m=>`<option${d.mode===m?' selected':''}>${m}</option>`).join('')}
+          <select onchange="window._don[${idx}].mode=this.value">
+            ${['Cash','UPI','Bank','Cheque','Other'].map(m => `<option${d.mode===m?' selected':''}>${m}</option>`).join('')}
           </select>
         </td>
-        <td class="editable-cell"><input type="date" value="${d.date}" onchange="donations[${idx}].date=this.value"/></td>
-        <td class="editable-cell"><input value="${esc(d.note)}" onchange="donations[${idx}].note=this.value"/></td>
+        <td class="editable-cell"><input type="date" value="${d.date}" onchange="window._don[${idx}].date=this.value"/></td>
+        <td class="editable-cell"><input value="${esc(d.note)}" onchange="window._don[${idx}].note=this.value"/></td>
         <td style="white-space:nowrap;">
-          <button class="tbl-action btn-save" onclick="saveRow(${idx})">💾 Save</button>
-          <button class="tbl-action btn-delete" onclick="deleteRow(${idx})" style="margin-left:0.3rem;">✕</button>
+          <button class="tbl-action btn-save"   onclick="window.saveRow(${idx})">💾 Save</button>
+          <button class="tbl-action btn-delete" onclick="window.deleteRow(${idx})" style="margin-left:0.3rem;">✕</button>
         </td>`;
     } else {
       tr.innerHTML = `
-        <td>${idx+1}</td>
+        <td>${idx + 1}</td>
         <td>${esc(d.name)}</td>
         <td>₹${Number(d.amount).toLocaleString('en-IN')}</td>
         <td><span style="background:rgba(212,160,23,0.13);border-radius:50px;padding:0.2em 0.7em;font-size:0.72rem;">${esc(d.mode)}</span></td>
@@ -943,111 +988,111 @@ function renderTable() {
     tbody.appendChild(tr);
   });
 
+  window._don = donations;
   document.getElementById('add-row-btn').style.display = editMode ? '' : 'none';
   updateSummary();
 }
 
 function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 function formatDate(d) {
   if (!d) return '—';
   const p = d.split('-');
-  return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : d;
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d;
 }
 
 // ══════════════════════════════════════
 // SUMMARY
 // ══════════════════════════════════════
 function updateSummary() {
-  const total = donations.reduce((s,d)=>s+Number(d.amount),0);
-  const cash  = donations.filter(d=>d.mode==='Cash').reduce((s,d)=>s+Number(d.amount),0);
-  const online= donations.filter(d=>['UPI','Bank','Cheque','Other'].includes(d.mode)).reduce((s,d)=>s+Number(d.amount),0);
-  document.getElementById('total-amt').textContent  = '₹'+total.toLocaleString('en-IN');
+  const total  = donations.reduce((s, d) => s + Number(d.amount), 0);
+  const cash   = donations.filter(d => d.mode === 'Cash').reduce((s, d) => s + Number(d.amount), 0);
+  const online = donations.filter(d => ['UPI','Bank','Cheque','Other'].includes(d.mode)).reduce((s, d) => s + Number(d.amount), 0);
+  document.getElementById('total-amt').textContent   = '₹' + total.toLocaleString('en-IN');
   document.getElementById('donor-count').textContent = donations.length;
-  document.getElementById('cash-amt').textContent   = '₹'+cash.toLocaleString('en-IN');
-  document.getElementById('online-amt').textContent = '₹'+online.toLocaleString('en-IN');
+  document.getElementById('cash-amt').textContent    = '₹' + cash.toLocaleString('en-IN');
+  document.getElementById('online-amt').textContent  = '₹' + online.toLocaleString('en-IN');
 }
 
 // ══════════════════════════════════════
-// ROW ACTIONS
+// ROW ACTIONS (Firestore)
 // ══════════════════════════════════════
-function saveRow(idx) {
-  donations[idx].id = donations[idx].id || (Date.now());
-  updateCSV();
-  toast('✓ Row saved & CSV updated');
-}
+window.saveRow = async function(idx) {
+  const d = donations[idx];
+  const { _id, ...data } = d;
+  try {
+    if (_id) {
+      await updateDoc(doc(db, COL, _id), {
+        name: data.name || '', amount: Number(data.amount) || 0,
+        mode: data.mode || 'Cash', date: data.date || '', note: data.note || ''
+      });
+    } else {
+      const ref = await addDoc(collection(db, COL), data);
+      donations[idx]._id = ref.id;
+    }
+    toast('✓ Saved to cloud — visible on all devices');
+  } catch(e) {
+    console.error(e);
+    toast('⚠️ Save failed — check connection');
+  }
+};
 
-function deleteRow(idx) {
-  donations.splice(idx, 1);
-  renderTable();
-  updateCSV();
-  toast('Row deleted');
-}
+window.deleteRow = async function(idx) {
+  const d = donations[idx];
+  try {
+    if (d._id) await deleteDoc(doc(db, COL, d._id));
+    else { donations.splice(idx, 1); renderTable(); }
+    toast('Row deleted');
+  } catch(e) {
+    console.error(e);
+    toast('⚠️ Delete failed');
+  }
+};
 
-function addRow() {
-  donations.push({
-    id: Date.now(),
-    name: '', amount: 0, mode: 'Cash',
-    date: new Date().toISOString().slice(0,10),
-    note: ''
-  });
-  renderTable();
-  // scroll to last row
-  const rows = document.querySelectorAll('#dona-body tr');
-  if (rows.length) rows[rows.length-1].scrollIntoView({behavior:'smooth'});
-}
+window.addRow = async function() {
+  try {
+    await addDoc(collection(db, COL), {
+      name: '', amount: 0, mode: 'Cash',
+      date: new Date().toISOString().slice(0, 10), note: ''
+    });
+    setTimeout(() => {
+      const rows = document.querySelectorAll('#dona-body tr');
+      if (rows.length) rows[rows.length - 1].scrollIntoView({ behavior: 'smooth' });
+    }, 500);
+  } catch(e) {
+    console.error(e);
+    toast('⚠️ Could not add row');
+  }
+};
 
 // ══════════════════════════════════════
-// CSV LOGIC
+// CSV EXPORT
 // ══════════════════════════════════════
-function toCSV() {
+window.exportCSV = function() {
   const header = ['#','Donor Name','Amount (INR)','Mode','Date','Note'];
-  const rows = donations.map((d,i)=>[
-    i+1,
+  const rows = donations.map((d, i) => [
+    i + 1,
     `"${String(d.name).replace(/"/g,'""')}"`,
-    d.amount,
-    d.mode,
-    d.date,
+    d.amount, d.mode, d.date,
     `"${String(d.note).replace(/"/g,'""')}"`
   ].join(','));
-  const total = donations.reduce((s,d)=>s+Number(d.amount),0);
+  const total = donations.reduce((s, d) => s + Number(d.amount), 0);
   rows.push(`,,,,,"Total: ₹${total.toLocaleString('en-IN')}"`);
-  return [header.join(','), ...rows].join('\n');
-}
-
-function updateCSV() {
-  // Simulate auto-save: store in localStorage as the "CSV file"
-  try {
-    localStorage.setItem('sita_rama_donations_csv', toCSV());
-    localStorage.setItem('sita_rama_donations_json', JSON.stringify(donations));
-  } catch(e) {}
-}
-
-function exportCSV() {
-  const csv = toCSV();
-  const blob = new Blob([csv], {type:'text/csv'});
-  const a = document.createElement('a');
+  const csv  = [header.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a    = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'sita_rama_kalyanam_donations.csv';
   a.click();
   toast('📥 CSV downloaded');
-}
-
-// Load from storage on startup
-(function loadData() {
-  try {
-    const stored = localStorage.getItem('sita_rama_donations_json');
-    if (stored) donations = JSON.parse(stored);
-  } catch(e) {}
-})();
+};
 
 // ══════════════════════════════════════
 // PIN MODAL
 // ══════════════════════════════════════
-function requestEdit() {
+window.requestEdit = function() {
   if (editMode) {
-    // toggle OFF
     editMode = false;
     document.getElementById('edit-btn').textContent = '✏️ Edit Table';
     document.getElementById('edit-btn').classList.remove('active-mode');
@@ -1058,7 +1103,7 @@ function requestEdit() {
     return;
   }
   openModal();
-}
+};
 
 function openModal() {
   pinBuffer = '';
@@ -1067,35 +1112,34 @@ function openModal() {
   document.getElementById('pin-modal').classList.add('open');
 }
 
-function closeModal() {
+window.closeModal = function() {
   pinBuffer = '';
   updateDots();
   document.getElementById('pin-error').textContent = '';
   document.getElementById('pin-modal').classList.remove('open');
-}
+};
 
-function pinKey(n) {
+window.pinKey = function(n) {
   if (pinBuffer.length >= 4) return;
   pinBuffer += String(n);
   updateDots();
   if (pinBuffer.length === 4) setTimeout(pinEnter, 120);
-}
+};
 
-function pinDel() {
-  pinBuffer = pinBuffer.slice(0,-1);
+window.pinDel = function() {
+  pinBuffer = pinBuffer.slice(0, -1);
   updateDots();
   document.getElementById('pin-error').textContent = '';
-}
+};
 
 function updateDots() {
-  for (let i=0; i<4; i++) {
-    document.getElementById('dot-'+i).classList.toggle('filled', i < pinBuffer.length);
-  }
+  for (let i = 0; i < 4; i++)
+    document.getElementById('dot-' + i).classList.toggle('filled', i < pinBuffer.length);
 }
 
 function pinEnter() {
   if (pinBuffer === CORRECT_PIN) {
-    closeModal();
+    window.closeModal();
     editMode = true;
     document.getElementById('edit-btn').innerHTML = '🔓 Exit Edit';
     document.getElementById('edit-btn').classList.add('active-mode');
@@ -1109,14 +1153,14 @@ function pinEnter() {
     updateDots();
   }
 }
+window.pinEnter = pinEnter;
 
-// keyboard support for PIN
 document.addEventListener('keydown', e => {
   if (!document.getElementById('pin-modal').classList.contains('open')) return;
-  if (e.key >= '0' && e.key <= '9') pinKey(parseInt(e.key));
-  if (e.key === 'Backspace') pinDel();
+  if (e.key >= '0' && e.key <= '9') window.pinKey(parseInt(e.key));
+  if (e.key === 'Backspace') window.pinDel();
   if (e.key === 'Enter') pinEnter();
-  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Escape') window.closeModal();
 });
 
 // ══════════════════════════════════════
@@ -1131,8 +1175,9 @@ function toast(msg) {
   toastTimer = setTimeout(() => { el.style.display = 'none'; }, 2800);
 }
 
-// Initial render
-renderTable();
+// ── START ──
+startListener();
 </script>
+
 </body>
 </html>
